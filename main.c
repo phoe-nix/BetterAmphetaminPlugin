@@ -21,6 +21,7 @@
 */
 
 #include <psp2/ctrl.h>
+#include <psp2/touch.h>
 #include <psp2/display.h>
 #include <psp2/power.h>
 #include <psp2/gxm.h>
@@ -40,8 +41,12 @@
 
 #include "blit.h"
 
+#define GREEN 0x00007F00
+#define BLUE 0x007F3F1F
+#define PURPLE 0x007F1F7F
+
 #define BLACK 0x00000000
-#define GREEN 0x0033CC33
+#define RED 0x0033CC33
 #define LONG_PRESS_TIME 2000000
 
 static int freq_list[] = { 41, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 111, 115, 120, 125, 130, 135, 140, 150, 155, 160, 165, 166, 170, 175, 180, 185, 190, 195, 200, 205, 210, 215, 220, 222, 225, 230, 235, 240, 250, 255, 260, 265, 266, 270, 275, 280, 285, 290, 295, 300, 305, 310, 315, 320, 325, 330, 333, 335, 340, 350, 355, 360, 365, 370, 375, 380, 385, 390, 395, 400, 405, 410, 415, 420, 425, 430, 435, 440, 444 };
@@ -74,20 +79,20 @@ int holdButtons(SceCtrlData *pad, uint32_t buttons) {
  * to always reschedule our threads instead of main one
  */
 volatile int term_stubs = 0;
-int stub_thread(SceSize args, void *argp) {
-	for (;;) {if (term_stubs) sceKernelExitDeleteThread(0);}	
+int stub_thread(SceSize args, void *argp){
+	for (;;){if (term_stubs) sceKernelExitDeleteThread(0);}	
 }
-void pauseMainThread() {
+void pauseMainThread(){
 	sceKernelChangeThreadPriority(0, 0x0);
 	int i;
 	term_stubs = 0;
-	for (i=0;i<2;i++) {
+	for (i=0;i<2;i++){
 		SceUID thid = sceKernelCreateThread("thread", stub_thread, 0x0, 0x40000, 0, 0, NULL);
 		if (thid >= 0)
 			sceKernelStartThread(thid, 0, NULL);
 	}
 }
-void resumeMainThread() {
+void resumeMainThread(){
 	term_stubs = 1;
 	sceKernelChangeThreadPriority(0, 0x40);
 }
@@ -101,10 +106,16 @@ int blit_thread(SceSize args, void *argp) {
 	int menu_open = 0;
 	int menu_sel = 0;
 
+	/* Enable front touchscreen */
+	sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, 1);
+
+	SceTouchData touch;
+
 	while (1) {
 		SceCtrlData pad;
 		memset(&pad, 0, sizeof(SceCtrlData));
 		sceCtrlPeekBufferPositive(0, &pad, 1);
+		sceTouchPeek(0, &touch, 1);
 
 		pressed_buttons = pad.buttons & ~current_buttons;
 		current_buttons = pad.buttons;
@@ -116,7 +127,10 @@ int blit_thread(SceSize args, void *argp) {
 		}
 
 		if (menu_open) {
-			if (pressed_buttons & SCE_CTRL_SELECT) {
+			if ((pressed_buttons & SCE_CTRL_SELECT)
+			||(pressed_buttons & SCE_CTRL_CROSS)
+			||(touch.reportNum > 0))
+			{
 				menu_open = 0;
 				resumeMainThread();
 			}
@@ -188,30 +202,43 @@ int blit_thread(SceSize args, void *argp) {
 			blit_setup();
 
 			blit_set_color(0x00FFFFFF, 0x0033CC33);
-			blit_stringf(336, 128, "Better  Amphetamin");
+			blit_stringf(348, 128, "\xa1\xa1\xa1\xa2\xa1\xa3\xa1\xa4\xa1\xb9\xa1\xba\xa1\xbb\xa1\xbc\xa1\xbf");//Better Amphetamin
 
-			blit_set_color(0x00FFFFFF, menu_sel == 0 ? GREEN : BLACK);
-			blit_stringf(336, 160, "CPU CLOCK");
-			blit_stringf(496, 160, "%-4d MHz", scePowerGetArmClockFrequency());
-			blit_set_color(0x00FFFFFF, menu_sel == 1 ? GREEN : BLACK);
-			blit_stringf(336, 176, "BUS CLOCK");
-			blit_stringf(496, 176, "%-4d MHz", scePowerGetBusClockFrequency());
-			blit_set_color(0x00FFFFFF, menu_sel == 2 ? GREEN : BLACK);
-			blit_stringf(336, 192, "GPU CLOCK");
-			blit_stringf(496, 192, "%-4d MHz", scePowerGetGpuClockFrequency());
+			blit_set_color(0x00FFFFFF, menu_sel == 0 ? BLUE : PURPLE);
+			blit_stringf(348, 176, "CPU \xa1\xa5\xa1\xa6");//CPU CLOCK
+			blit_stringf(468, 176, "%-4d\xa1\xbd\xa1\xbe", scePowerGetArmClockFrequency());//MHZ
+
+			blit_set_color(0x00FFFFFF, menu_sel == 1 ? BLUE : PURPLE);
+			blit_stringf(348, 200, "BUS \xa1\xa5\xa1\xa6");//BUS CLOCK
+			blit_stringf(468, 200, "%-4d\xa1\xbd\xa1\xbe", scePowerGetBusClockFrequency());//MHZ
+
+			blit_set_color(0x00FFFFFF, menu_sel == 2 ? BLUE : PURPLE);
+			blit_stringf(348, 224, "GPU \xa1\xa5\xa1\xa6");//GPU CLOCK
+			blit_stringf(468, 224, "%-4d\xa1\xbd\xa1\xbe", scePowerGetGpuClockFrequency());//MHZ
 			
-			blit_set_color(0x00FFFFFF, BLACK);
-			blit_stringf(336, 224, "BATTERY  ");
-			blit_stringf(496, 224, "%-4d mAh", scePowerGetBatteryRemainCapacity());
-			blit_set_color(0x00FFFFFF, BLACK);
-			blit_stringf(336, 240, "REMAINING");
-			blit_stringf(496, 240, "%-4d min", scePowerGetBatteryLifeTime());
-			blit_set_color(0x00FFFFFF, BLACK);
-			blit_stringf(336, 256, "CHARGING ");
-			if (scePowerIsBatteryCharging() == 1) {
-				blit_stringf(496, 256, "YES     ");
-			} else {
-				blit_stringf(496, 256, "NO      ");
+			blit_set_color(0x00FFFFFF, menu_sel == 2 ? PURPLE : PURPLE);
+			blit_stringf(348, 272, "\xa1\xa7\xa1\xa8\xa1\xa9\xa1\xaa");//BATTERY 剩余电量
+			blit_stringf(468, 272, "%-4d\xa1\xab\xa1\xac", scePowerGetBatteryRemainCapacity());//%d mAh 毫安
+
+			if (scePowerIsBatteryCharging() == 1)
+			{
+				blit_set_color(0x00FFFFFF, menu_sel == 2 ? PURPLE : PURPLE);
+				blit_stringf(348, 296, "\xa1\xb3\xa1\xb4\xa1\xb5\xa1\xb6");//REMAINING 剩余时间
+				blit_stringf(468, 296, "\xa1\xad\xa1\xae\xa1\xaf\xa1\xa9");//CHARGING 正在充电
+
+				//blit_set_color(0x00FFFFFF, menu_sel == 2 ? PURPLE : PURPLE);
+				//blit_stringf(348, 320, "\xa1\xb3\xa1\xb4\xa1\xb5\xa1\xb6");//REMAINING
+				//blit_stringf(468, 320, "%3d \xa1\xb7\xa1\xb8", scePowerGetBatteryLifeTime());//%d min
+			}
+			else
+			{
+				blit_set_color(0x00FFFFFF, menu_sel == 2 ? PURPLE : PURPLE);
+				blit_stringf(348, 296, "\xa1\xb3\xa1\xb4\xa1\xb5\xa1\xb6");//REMAINING 可用时间
+				blit_stringf(468, 296, "%-4d\xa1\xb7\xa1\xb8", scePowerGetBatteryLifeTime());//%d min 分钟
+
+				//blit_set_color(0x00FFFFFF, menu_sel == 2 ? PURPLE : PURPLE);
+				//blit_stringf(348, 320, "\xa1\xb3\xa1\xb4\xa1\xb5\xa1\xb6");//REMAINING
+				//blit_stringf(468, 320, "%3d \xa1\xb7\xa1\xb8", scePowerGetBatteryLifeTime());//%d min
 			}
 		}
 		sceDisplayWaitVblankStart();
